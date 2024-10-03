@@ -10,7 +10,8 @@ import org.springframework.util.StringUtils;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.validation.ObjectError;
-import org.springframework.validation.ValidationUtils;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.support.RedirectAttributes;
 
@@ -23,6 +24,14 @@ import java.util.List;
 public class ValidationItemControllerV2 {
 
     private final ItemRepository itemRepository;
+    private final ItemValidator itemValidator;
+
+
+    @InitBinder
+    public void init(WebDataBinder dataBinder) {
+        log.info("initBinder {}", dataBinder);
+        dataBinder.addValidators(itemValidator);
+    }
 
     @GetMapping
     public String items(Model model) {
@@ -47,8 +56,6 @@ public class ValidationItemControllerV2 {
 
     /**
      * @param bindingResult      ControllerV1에서 Map errors 대체
-     * @param redirectAttributes
-     * @return
      */
 //    @PostMapping("/add")
     public String addItemV1(@ModelAttribute Item item, BindingResult bindingResult, RedirectAttributes redirectAttributes) {
@@ -161,7 +168,7 @@ public class ValidationItemControllerV2 {
     /**
      * bindingResult는 검증 대상인 Item을 이미 알고있다.(매개변수 자리로 알 수 있음)
      */
-    @PostMapping("/add")
+//    @PostMapping("/add")
     public String addItemV4(@ModelAttribute Item item, BindingResult bindingResult, RedirectAttributes redirectAttributes) {
 
         log.info("objectName= {}", bindingResult.getObjectName());
@@ -171,10 +178,10 @@ public class ValidationItemControllerV2 {
         if (!StringUtils.hasText(item.getItemName())) {
             bindingResult.rejectValue("itemName", "required");
         }
-        /**
+        /*
          * 위 if문 대체 가능. rejectValue만 대신할 수 있음(필드 필수)
          */
-        ValidationUtils.rejectIfEmpty(bindingResult, "itemName", "required");
+//        ValidationUtils.rejectIfEmpty(bindingResult, "itemName", "required");
 
         if (item.getPrice() == null || item.getPrice() < 1000 || item.getPrice() > 1000000) {
             bindingResult.rejectValue("price", "range", new Object[]{1000, 1000000}, null);
@@ -190,6 +197,49 @@ public class ValidationItemControllerV2 {
                 bindingResult.reject("totalPriceMin", new Object[]{10000, resultPrice}, null);
             }
         }
+
+        // 검증에 실패하면 다시 addForm으로 이동.
+        if (bindingResult.hasErrors()) {
+            log.info("errors={}", bindingResult);
+            return "validation/v2/addForm";
+        }
+
+        // 성공 로직
+        Item savedItem = itemRepository.save(item);
+        redirectAttributes.addAttribute("itemId", savedItem.getId());
+        redirectAttributes.addAttribute("status", true);
+        return "redirect:/validation/v2/items/{itemId}";
+    }
+
+    /**
+     * 검증 메서드를 분리시켜 ItemValidator 클래스로 따로 만들고 주입받아 사용.
+     * supports 메서드는 자동으로 실행됨.
+     */
+//    @PostMapping("/add")
+    public String addItemV5(@ModelAttribute Item item, BindingResult bindingResult, RedirectAttributes redirectAttributes) {
+
+        itemValidator.validate(item, bindingResult);
+
+        // 검증에 실패하면 다시 addForm으로 이동.
+        if (bindingResult.hasErrors()) {
+            log.info("errors={}", bindingResult);
+            return "validation/v2/addForm";
+        }
+
+        // 성공 로직
+        Item savedItem = itemRepository.save(item);
+        redirectAttributes.addAttribute("itemId", savedItem.getId());
+        redirectAttributes.addAttribute("status", true);
+        return "redirect:/validation/v2/items/{itemId}";
+    }
+
+    /*
+     * @Validated 어노테이션 사용.
+     * validator 직접 호출 X. 검증 대상 앞에 @Validated 붙임.
+     * 이러면 자동으로 @InitBinder에서 적용해둔 Validator의 supports, validate 메서드가 실행됨.
+     */
+    @PostMapping("/add")
+    public String addItemV6(@Validated @ModelAttribute Item item, BindingResult bindingResult, RedirectAttributes redirectAttributes) {
 
         // 검증에 실패하면 다시 addForm으로 이동.
         if (bindingResult.hasErrors()) {
